@@ -17,3 +17,13 @@ source dbt-env/bin/activate         # activate the environment
 git clone https://github.com/dbt-labs/dbt.git
 cd dbt
 pip install -r requirements.txt
+
+
+3. Генерим данные в виде csv-файлов
+git clone git@github.com:vadimtk/ssb-dbgen.git
+cd ssb-dbgen
+make
+ ./dbgen -s 1 -T d
+ ./dbgen -s 1 -T s
+ ./dbgen -s 1 -T l
+ ./dbgen -s 1 -T p
