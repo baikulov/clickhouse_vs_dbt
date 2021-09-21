@@ -1,4 +1,4 @@
-1. Разворачиваем кластер clickhouse
+##1. Разворачиваем кластер clickhouse
 yc managed-clickhouse cluster create /
 --name otus /
 --environment production /
@@ -11,19 +11,116 @@ yc managed-clickhouse cluster create /
 --database name=db1
 
 
-2.Устанавливаем dbt и расширение
-python3 -m venv dbt-env             # create the environment
-source dbt-env/bin/activate         # activate the environment
-git clone https://github.com/dbt-labs/dbt.git
+##2.Устанавливаем dbt и расширение
+# создаем виртуальное окружение 
+python3 -m venv dbt-env            
+
+# активируем виртуальное окружение
+source dbt-env/bin/activate 
+
+# клонируем репо с dbt
+git clone https://github.com/dbt-labs/dbt.git 
 cd dbt
+
+# устанавливаем dbt по списку из файла
 pip install -r requirements.txt
 
+# ставим расширение dbt для работы с CH
+pip install dbt==0.20.0 dbt-clickhouse==0.20.0 
 
-3. Генерим данные в виде csv-файлов
-git clone git@github.com:vadimtk/ssb-dbgen.git
+# создаём проект dbt
+dbt init clickhouse_starschema
+
+##3. Генерим данные в виде csv-файлов
+# клонируем репо с генератором
+git clone git@github.com:vadimtk/ssb-dbgen.git 
 cd ssb-dbgen
-make
+# инициируем генератор и при помощи команд генерим файлы csv
+make 
  ./dbgen -s 1 -T d
  ./dbgen -s 1 -T s
  ./dbgen -s 1 -T l
  ./dbgen -s 1 -T p
+
+##4. Созданием таблицы в CH
+# Создаём таблицы в нашей базе db1 в CH
+CREATE TABLE db1.customer
+(
+        C_CUSTKEY       UInt32,
+        C_NAME          String,
+        C_ADDRESS       String,
+        C_CITY          LowCardinality(String),
+        C_NATION        LowCardinality(String),
+        C_REGION        LowCardinality(String),
+        C_PHONE         String,
+        C_MKTSEGMENT    LowCardinality(String)
+)
+ENGINE = MergeTree ORDER BY (C_CUSTKEY);
+
+CREATE TABLE db1.lineorder
+(
+    LO_ORDERKEY             UInt32,
+    LO_LINENUMBER           UInt8,
+    LO_CUSTKEY              UInt32,
+    LO_PARTKEY              UInt32,
+    LO_SUPPKEY              UInt32,
+    LO_ORDERDATE            Date,
+    LO_ORDERPRIORITY        LowCardinality(String),
+    LO_SHIPPRIORITY         UInt8,
+    LO_QUANTITY             UInt8,
+    LO_EXTENDEDPRICE        UInt32,
+    LO_ORDTOTALPRICE        UInt32,
+    LO_DISCOUNT             UInt8,
+    LO_REVENUE              UInt32,
+    LO_SUPPLYCOST           UInt32,
+    LO_TAX                  UInt8,
+    LO_COMMITDATE           Date,
+    LO_SHIPMODE             LowCardinality(String)
+)
+ENGINE = MergeTree PARTITION BY toYear(LO_ORDERDATE) ORDER BY (LO_ORDERDATE, LO_ORDERKEY);
+
+CREATE TABLE db1.part
+(
+        P_PARTKEY       UInt32,
+        P_NAME          String,
+        P_MFGR          LowCardinality(String),
+        P_CATEGORY      LowCardinality(String),
+        P_BRAND         LowCardinality(String),
+        P_COLOR         LowCardinality(String),
+        P_TYPE          LowCardinality(String),
+        P_SIZE          UInt8,
+        P_CONTAINER     LowCardinality(String)
+)
+ENGINE = MergeTree ORDER BY P_PARTKEY;
+
+CREATE TABLE db1.supplier
+(
+        S_SUPPKEY       UInt32,
+        S_NAME          String,
+        S_ADDRESS       String,
+        S_CITY          LowCardinality(String),
+        S_NATION        LowCardinality(String),
+        S_REGION        LowCardinality(String),
+        S_PHONE         String
+)
+ENGINE = MergeTree ORDER BY S_SUPPKEY;
+
+# устанавливаем клиент clickhouse, конфигурацию и сертификат и подключаемся
+# установка
+sudo apt install clickhouse-client 
+
+# конфигурация и ssl
+mkdir -p ~/.clickhouse-client /usr/local/share/ca-certificates/Yandex && \
+wget "https://storage.yandexcloud.net/cloud-certs/CA.pem" -O /usr/local/share/ca-certificates/Yandex/YandexInternalRootCA.crt && \
+wget "https://storage.yandexcloud.net/mdb/clickhouse-client.conf.example" -O ~/.clickhouse-client/config.xml 
+
+# подключение
+clickhouse-client --host rc1a-nq1vtrcj4t68gmz9.mdb.yandexcloud.net --secure true --user user1 --database db1 --port 9440 --ask-password
+
+# наполняем таблицы из csv файлов
+clickhouse-client --query "INSERT INTO customer FORMAT CSV" < customer.tbl
+clickhouse-client --query "INSERT INTO part FORMAT CSV" < part.tbl
+clickhouse-client --query "INSERT INTO supplier FORMAT CSV" < supplier.tbl
+clickhouse-client --query "INSERT INTO lineorder FORMAT CSV" < lineorder.tbl
+
+5
