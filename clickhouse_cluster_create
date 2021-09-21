@@ -9,3 +9,11 @@ yc managed-clickhouse cluster create /
 --clickhouse-disk-size 10 /
 --user name=user1,password=password1 /
 --database name=db1
+
+
+2.Устанавливаем dbt и расширение
+python3 -m venv dbt-env             # create the environment
+source dbt-env/bin/activate         # activate the environment
+git clone https://github.com/dbt-labs/dbt.git
+cd dbt
+pip install -r requirements.txt
