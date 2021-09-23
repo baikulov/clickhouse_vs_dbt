@@ -1,1 +1,201 @@
-# clickhouse_vs_dbt
+##1. Разворачиваем кластер clickhouse
+yc managed-clickhouse cluster create /
+--name <my-cluster-name> /
+--environment production /
+--network-name <my-net-name> /
+--host type=clickhouse,zone-id=ru-central1-a,subnet-id=<my_subnet_id> /
+--clickhouse-resource-preset  m2.micro /
+--clickhouse-disk-type network-ssd /
+--clickhouse-disk-size 10 /
+--user name=user1,password=<my_password> /
+--database name=<my_db_name>
+
+
+##2.Устанавливаем dbt и расширение
+# создаем виртуальное окружение 
+python3 -m venv dbt-env            
+
+# активируем виртуальное окружение
+source dbt-env/bin/activate 
+
+# клонируем репо с dbt
+git clone https://github.com/dbt-labs/dbt.git 
+cd dbt
+
+# устанавливаем dbt по списку из файла
+pip install -r requirements.txt
+
+# ставим расширение dbt для работы с CH
+pip install dbt==0.20.0 dbt-clickhouse==0.20.0 
+
+# создаём проект dbt
+dbt init clickhouse_starschema
+
+##3. Генерим данные в виде csv-файлов
+# клонируем репо с генератором
+git clone git@github.com:vadimtk/ssb-dbgen.git 
+cd ssb-dbgen
+# инициируем генератор и при помощи команд генерим файлы csv
+make 
+ ./dbgen -s 1 -T d
+ ./dbgen -s 1 -T s
+ ./dbgen -s 1 -T l
+ ./dbgen -s 1 -T p
+
+##4. Подготовка сервисного аккаунта для загрузки файлов в Object Storage
+
+# проверяем список уже созданных сервисных аккаунтов
+yc iam service-account list
+
+# и создаём новый сервисный аккаунт если нужно
+yc iam service-account create --name <my-account-name>
+
+# проверяем его данные
+yc iam service-account get <my-account-name>
+
+# смотрим список ролей и выбираем нужную. Нас интересует storage.admin
+yc iam role list
+
+# присваиваем роль аккаунту
+yc iam service-account add-access-binding <my-account-name> /
+  --role storage.admin / 
+  --subject serviceAccount:<your_service-account_id>
+
+# генерируем credentials для дальнейшего указания в AWS CLI config. Нужно где-то записать
+yc iam access-key create --service-account-name <my-account-name>
+
+
+##5. Для загрузки локальных CSV в S3-bucket устанавливаем AWS CLI 
+
+# скачиваем нужную версию CLI
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+
+# распаковываем архив
+unzip awscliv2.zip
+
+# устанавливаем CLI
+sudo ./aws/install
+
+# проверяем установку
+aws --version
+
+# устанавливаем конфигурацию файла, где указываем значения сгенерированные ранее. Region name=ru-central1. output format=json
+aws configure
+--AWS Access Key ID [None]: <my-service-account-access-key-id>
+--AWS Secret Access Key [None]: <my-service-account-access-secret-key>
+--Default region name [None]: ru-central1
+--Default output format [None]: json
+
+
+##6. Загружаем файлы в S3
+
+# создаём S3-bucket и грузим в него файлы
+aws --endpoint-url=https://storage.yandexcloud.net s3 mb s3://<my-bucket-name> --acl=public-read 
+
+# загружаем все файлы из папки с постфиксом tbl
+aws --endpoint-url=https://storage.yandexcloud.net s3 sync . s3://<my-bucket-name>/<my-folder-name>/ --exclude=* --include=*.tbl --acl=public-read
+
+# проверяем список загруженных файлов
+aws --endpoint-url=https://storage.yandexcloud.net s3 ls --recursive s3://<my-bucket-name>
+
+##7. Созданием таблицы в CH
+# Создаём таблицы в нашей базе db1 в CH
+CREATE TABLE <my_db_name>.src_customer
+        (
+                C_CUSTKEY       UInt32,
+                C_NAME          String,
+                C_ADDRESS       String,
+                C_CITY          LowCardinality(String),
+                C_NATION        LowCardinality(String),
+                C_REGION        LowCardinality(String),
+                C_PHONE         String,
+                C_MKTSEGMENT    LowCardinality(String)
+        )
+        ENGINE = S3('https://storage.yandexcloud.net/<my-bucket-name>/<my-folder-name>/customer.tbl', 'CSV')
+        ;
+
+        CREATE TABLE <my_db_name>.src_lineorder
+        (
+            LO_ORDERKEY             UInt32,
+            LO_LINENUMBER           UInt8,
+            LO_CUSTKEY              UInt32,
+            LO_PARTKEY              UInt32,
+            LO_SUPPKEY              UInt32,
+            LO_ORDERDATE            Date,
+            LO_ORDERPRIORITY        LowCardinality(String),
+            LO_SHIPPRIORITY         UInt8,
+            LO_QUANTITY             UInt8,
+            LO_EXTENDEDPRICE        UInt32,
+            LO_ORDTOTALPRICE        UInt32,
+            LO_DISCOUNT             UInt8,
+            LO_REVENUE              UInt32,
+            LO_SUPPLYCOST           UInt32,
+            LO_TAX                  UInt8,
+            LO_COMMITDATE           Date,
+            LO_SHIPMODE             LowCardinality(String)
+        )
+        ENGINE = S3('https://storage.yandexcloud.net/<my-bucket-name>/<my-folder-name>/lineorder.tbl', 'CSV')
+        ;
+
+        CREATE TABLE <my_db_name>.src_part
+        (
+                P_PARTKEY       UInt32,
+                P_NAME          String,
+                P_MFGR          LowCardinality(String),
+                P_CATEGORY      LowCardinality(String),
+                P_BRAND         LowCardinality(String),
+                P_COLOR         LowCardinality(String),
+                P_TYPE          LowCardinality(String),
+                P_SIZE          UInt8,
+                P_CONTAINER     LowCardinality(String)
+        )
+        ENGINE = S3('https://storage.yandexcloud.net/<my-bucket-name>/<my-folder-name>/part.tbl', 'CSV')
+        ;
+
+        CREATE TABLE <my_db_name>.src_supplier
+        (
+                S_SUPPKEY       UInt32,
+                S_NAME          String,
+                S_ADDRESS       String,
+                S_CITY          LowCardinality(String),
+                S_NATION        LowCardinality(String),
+                S_REGION        LowCardinality(String),
+                S_PHONE         String
+        )
+        ENGINE = S3('https://storage.yandexcloud.net/<my-bucket-name>/<my-folder-name>/supplier.tbl', 'CSV')
+        ;
+
+##8. Конфигурация подключения dbt к базе данных внутри кластера clickhouse
+# По умолчанию dbt ищет параметры подключения в файле /home/<usr>/.dbt/profiles.yml
+<example-profile-name>:
+  target: dev
+  outputs:
+    dev:
+      type: clickhouse --тип расширения что мы скачивали ранее
+      schema: <my_db_name>
+      host: <my-host.mdb.yandexcloud.net>
+      port: 9440
+      user: <my-user>
+      password: <my-password>
+      secure: True
+
+# в файле dbt_project.yml в рабочем проекте dbt указываем название для profile-параметра
+name: 'clickhouse'
+version: '1.0.0'
+config-version: 2
+profile: '<example-profile-name>'
+
+# проверяем подключение с помощью команды
+dbt debug
+
+# В этом же файле указываем расположение моделей и типы таблиц в них. Такая же иерархия будет в папке models в проекте
+models:
+  clickhouse:
+    sources:
+      +materialized: table
+    staging:
+      +materialized: view
+    star:
+      +materialized: table
+
+#

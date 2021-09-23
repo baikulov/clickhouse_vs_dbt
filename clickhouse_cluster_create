@@ -65,7 +65,7 @@ yc iam service-account add-access-binding <my-account-name> /
 yc iam access-key create --service-account-name <my-account-name>
 
 
-##5. Для загрузки локальных CSV в S3-bucket генерируем сервисный аккаунт и устанавливаем AWS CLI 
+##5. Для загрузки локальных CSV в S3-bucket устанавливаем AWS CLI 
 
 # скачиваем нужную версию CLI
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
@@ -98,7 +98,7 @@ aws --endpoint-url=https://storage.yandexcloud.net s3 sync . s3://<my-bucket-nam
 # проверяем список загруженных файлов
 aws --endpoint-url=https://storage.yandexcloud.net s3 ls --recursive s3://<my-bucket-name>
 
-##4. Созданием таблицы в CH
+##7. Созданием таблицы в CH
 # Создаём таблицы в нашей базе db1 в CH
 CREATE TABLE <my_db_name>.src_customer
         (
@@ -164,3 +164,38 @@ CREATE TABLE <my_db_name>.src_customer
         )
         ENGINE = S3('https://storage.yandexcloud.net/<my-bucket-name>/<my-folder-name>/supplier.tbl', 'CSV')
         ;
+
+##8. Конфигурация подключения dbt к базе данных внутри кластера clickhouse
+# По умолчанию dbt ищет параметры подключения в файле /home/<usr>/.dbt/profiles.yml
+<example-profile-name>:
+  target: dev
+  outputs:
+    dev:
+      type: clickhouse --тип расширения что мы скачивали ранее
+      schema: <my_db_name>
+      host: <my-host.mdb.yandexcloud.net>
+      port: 9440
+      user: <my-user>
+      password: <my-password>
+      secure: True
+
+# в файле dbt_project.yml в рабочем проекте dbt указываем название для profile-параметра
+name: 'clickhouse'
+version: '1.0.0'
+config-version: 2
+profile: '<example-profile-name>'
+
+# проверяем подключение с помощью команды
+dbt debug
+
+# В этом же файле указываем расположение моделей и типы таблиц в них. Такая же иерархия будет в папке models в проекте
+models:
+  clickhouse:
+    sources:
+      +materialized: table
+    staging:
+      +materialized: view
+    star:
+      +materialized: table
+
+#
