@@ -144,7 +144,7 @@ aws --endpoint-url=https://storage.yandexcloud.net s3 sync . s3://<my-bucket-nam
 ```
 
 Проверяем список загруженных файлов  
-```
+```sh
 aws --endpoint-url=https://storage.yandexcloud.net s3 ls --recursive s3://<my-bucket-name>
 ```
 
@@ -152,7 +152,7 @@ aws --endpoint-url=https://storage.yandexcloud.net s3 ls --recursive s3://<my-bu
 
 Создаём таблицы в нашей базе db1 в CH  
 
-```
+```sql
 CREATE TABLE <my_db_name>.src_customer  
         (  
                 C_CUSTKEY       UInt32,  
@@ -222,7 +222,7 @@ CREATE TABLE <my_db_name>.src_customer
 ## 8. Конфигурация подключения dbt к базе данных внутри кластера clickhouse
 
 По умолчанию dbt ищет параметры подключения в файле /home/usr/.dbt/profiles.yml  
-```
+```yaml
 <example-profile-name>:  
   target: dev  
   outputs:  
@@ -237,19 +237,19 @@ CREATE TABLE <my_db_name>.src_customer
  ```     
 
 В файле dbt_project.yml в рабочем проекте dbt указываем название для profile-параметра  
-```
+```yaml
 name: 'clickhouse'  
 version: '1.0.0'  
 config-version: 2`  
 profile: '<example-profile-name>'
 ```
 Проверяем подключение с помощью команды  
-```
+```bash
 dbt debug
 ```
 
 В этом же файле указываем расположение моделей и типы таблиц в них. Такая же иерархия будет в папке models в проекте  
-```
+```yaml
 models:  
   clickhouse:  
     sources:  
