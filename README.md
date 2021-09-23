@@ -248,7 +248,7 @@ profile: '<example-profile-name>'
 dbt debug
 ```
 
-В этом же файле указываем расположение моделей и типы таблиц в них. Такая же иерархия будет в папке models в проекте  
+В этом же файле указываем расположение моделей и типы таблиц в них. Такая же иерархия будет в папке models в проекте. Переходим туда и создаём подпапку clickhouse, а внутри неё остальные - sources, staging, star
 ```yaml
 models:  
   clickhouse:  
@@ -259,3 +259,180 @@ models:
     star:  
       +materialized: table
 ```
+
+## 9. Создание моделей
+
+Сперва указываем создаём файл sources.yml в папке models/clickhouse/sources
+
+```yaml
+version: 2
+
+sources:
+    - name: dbgen
+      database: db1
+      schema: db1
+      tags: ["db1"]      
+      description: "External tables"
+
+      tables:
+        - name: customer
+          description: "Customer source in S3 bucket"
+          identifier: src_customer
+        - name: lineorder
+          description: "Lineorder source in S3 bucket"
+          identifier: src_lineorder
+        - name: supplier
+          description: "Supplier source in S3 bucket"
+          identifier: src_supplier
+        - name: part
+          description: "Part source in S3 bucket"
+          identifier: src_part
+```
+
+Затем создаём модели. Переходим в папку /staging и создаём 4 файла
+
+Таблица stg_customer
+```SQL
+{{ config(materialized='view') }}
+
+Select *
+FROM {{ source('dbgen', 'customer')}}
+```
+
+Таблица stg_lineorder
+```SQL
+{{ config(materialized='view') }}
+
+Select *
+FROM {{ source('dbgen', 'lineorder')}}
+```
+
+Таблица stg_part
+```SQL
+{{ config(materialized='view') }}
+
+Select *
+FROM {{ source('dbgen', 'part')}}
+```
+
+Таблица stg_supplier
+```SQL
+{{ config(materialized='view') }}
+
+Select *
+FROM {{ source('dbgen', 'supplier')}}
+```
+
+После этого  создаём файл staging.yml
+```sql
+
+version: 2
+
+models:  
+  - name: stg_customer  
+    description: "Customer model"  
+
+  - name: stg_lineorder  
+    description: "Lineorder dbt model"  
+  
+  - name: stg_supplier  
+    description: "Supplier dbt model"  
+  
+  - name: stg_part  
+    description: "Part dbt model"  
+``` 
+
+Переходим в папку /star и создаём файл star.sql в котором соединяем все предыдущие таблицы из staging
+
+```sql
+{{ config(materialized='table') }}
+
+SELECT
+    l.LO_ORDERKEY AS LO_ORDERKEY,
+    l.LO_LINENUMBER AS LO_LINENUMBER,
+    l.LO_CUSTKEY AS LO_CUSTKEY,
+    l.LO_PARTKEY AS LO_PARTKEY,
+    l.LO_SUPPKEY AS LO_SUPPKEY,
+    l.LO_ORDERDATE AS LO_ORDERDATE,
+    l.LO_ORDERPRIORITY AS LO_ORDERPRIORITY,
+    l.LO_SHIPPRIORITY AS LO_SHIPPRIORITY,
+    l.LO_QUANTITY AS LO_QUANTITY,
+    l.LO_EXTENDEDPRICE AS LO_EXTENDEDPRICE,
+    l.LO_ORDTOTALPRICE AS LO_ORDTOTALPRICE,
+    l.LO_DISCOUNT AS LO_DISCOUNT,
+    l.LO_REVENUE AS LO_REVENUE,
+    l.LO_SUPPLYCOST AS LO_SUPPLYCOST,
+    l.LO_TAX AS LO_TAX,
+    l.LO_COMMITDATE AS LO_COMMITDATE,
+    l.LO_SHIPMODE AS LO_SHIPMODE,
+    c.C_NAME AS C_NAME,
+    c.C_ADDRESS AS C_ADDRESS,
+    c.C_CITY AS C_CITY,
+    c.C_NATION AS C_NATION,
+    c.C_REGION AS C_REGION,
+    c.C_PHONE AS C_PHONE,
+    c.C_MKTSEGMENT AS C_MKTSEGMENT,
+    s.S_NAME AS S_NAME,
+    s.S_ADDRESS AS S_ADDRESS,
+    s.S_CITY AS S_CITY,
+    s.S_NATION AS S_NATION,
+    s.S_REGION AS S_REGION,
+    s.S_PHONE AS S_PHONE,
+    p.P_NAME AS P_NAME,
+    p.P_MFGR AS P_MFGR,
+    p.P_CATEGORY AS P_CATEGORY,
+    p.P_BRAND AS P_BRAND,
+    p.P_COLOR AS P_COLOR,
+    p.P_TYPE AS P_TYPE,
+    p.P_SIZE AS P_SIZE,
+    p.P_CONTAINER AS P_CONTAINER
+FROM {{ ref('stg_lineorder') }} AS l
+INNER JOIN {{ ref('stg_customers') }} AS c ON c.C_CUSTKEY = l.LO_CUSTKEY
+INNER JOIN {{ ref('stg_supplier') }} AS s ON s.S_SUPPKEY = l.LO_SUPPKEY
+INNER JOIN {{ ref('stg_part') }} AS p ON p.P_PARTKEY = l.LO_PARTKEY
+```
+
+Создаём файл star.yml
+```yaml
+version: 2
+
+models:
+  - name: star
+    description: "Star model"
+```
+
+B последним действием собираем модели, выполнив команду 
+```
+dbt run
+```
+
+## 10. Выполняем запросы к сформированной таблице star
+
+Q1.1.
+```
+SELECT sum(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
+FROM star
+WHERE toYear(LO_ORDERDATE) = 1993 AND LO_DISCOUNT BETWEEN 1 AND 3 AND LO_QUANTITY < 25;
+```
+Ответ: 446031203850
+
+
+Q1.2
+```
+SELECT sum(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
+FROM star
+WHERE toYYYYMM(LO_ORDERDATE) = 199401 AND LO_DISCOUNT BETWEEN 4 AND 6 AND LO_QUANTITY BETWEEN 26 AND 35;
+```
+Ответ: 98714004603
+
+
+Q1.3
+```
+SELECT sum(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
+FROM star
+WHERE toISOWeek(LO_ORDERDATE) = 6 AND toYear(LO_ORDERDATE) = 1994
+  AND LO_DISCOUNT BETWEEN 5 AND 7 AND LO_QUANTITY BETWEEN 26 AND 35;
+```
+Ответ: 26110729246
+
+P.s. Ещё можно всё покрыть тестами, автоматизировать загрузку из хранилища и т.д.
