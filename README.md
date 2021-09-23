@@ -1,4 +1,6 @@
-##1. Разворачиваем кластер clickhouse
+# Подключение dbt к базе данных в Clickhouse-кластере Я.Облака
+
+# 1. Разворачиваем кластер clickhouse
 yc managed-clickhouse cluster create /
 --name <my-cluster-name> /
 --environment production /
@@ -11,75 +13,78 @@ yc managed-clickhouse cluster create /
 --database name=<my_db_name>
 
 
-##2.Устанавливаем dbt и расширение
-# создаем виртуальное окружение 
+# 2.Устанавливаем dbt и расширение
+
+## создаем виртуальное окружение 
 python3 -m venv dbt-env            
 
-# активируем виртуальное окружение
+## активируем виртуальное окружение
 source dbt-env/bin/activate 
 
-# клонируем репо с dbt
+## клонируем репо с dbt
 git clone https://github.com/dbt-labs/dbt.git 
 cd dbt
 
-# устанавливаем dbt по списку из файла
+## устанавливаем dbt по списку из файла
 pip install -r requirements.txt
 
-# ставим расширение dbt для работы с CH
+## ставим расширение dbt для работы с CH
 pip install dbt==0.20.0 dbt-clickhouse==0.20.0 
 
-# создаём проект dbt
+## создаём проект dbt
 dbt init clickhouse_starschema
 
-##3. Генерим данные в виде csv-файлов
-# клонируем репо с генератором
+# 3. Генерим данные в виде csv-файлов
+
+## клонируем репо с генератором
 git clone git@github.com:vadimtk/ssb-dbgen.git 
 cd ssb-dbgen
-# инициируем генератор и при помощи команд генерим файлы csv
+
+## инициируем генератор и при помощи команд генерим файлы csv
 make 
  ./dbgen -s 1 -T d
  ./dbgen -s 1 -T s
  ./dbgen -s 1 -T l
  ./dbgen -s 1 -T p
 
-##4. Подготовка сервисного аккаунта для загрузки файлов в Object Storage
+# 4. Подготовка сервисного аккаунта для загрузки файлов в Object Storage
 
-# проверяем список уже созданных сервисных аккаунтов
+## проверяем список уже созданных сервисных аккаунтов
 yc iam service-account list
 
-# и создаём новый сервисный аккаунт если нужно
+## и создаём новый сервисный аккаунт если нужно
 yc iam service-account create --name <my-account-name>
 
-# проверяем его данные
+## проверяем его данные
 yc iam service-account get <my-account-name>
 
-# смотрим список ролей и выбираем нужную. Нас интересует storage.admin
+## смотрим список ролей и выбираем нужную. Нас интересует storage.admin
 yc iam role list
 
-# присваиваем роль аккаунту
+## присваиваем роль аккаунту
 yc iam service-account add-access-binding <my-account-name> /
   --role storage.admin / 
   --subject serviceAccount:<your_service-account_id>
 
-# генерируем credentials для дальнейшего указания в AWS CLI config. Нужно где-то записать
+## генерируем credentials для дальнейшего указания в AWS CLI config. Нужно где-то записать
 yc iam access-key create --service-account-name <my-account-name>
 
 
-##5. Для загрузки локальных CSV в S3-bucket устанавливаем AWS CLI 
+# 5. Для загрузки локальных CSV в S3-bucket устанавливаем AWS CLI 
 
-# скачиваем нужную версию CLI
+## скачиваем нужную версию CLI
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 
-# распаковываем архив
+## распаковываем архив
 unzip awscliv2.zip
 
-# устанавливаем CLI
+## устанавливаем CLI
 sudo ./aws/install
 
-# проверяем установку
+## проверяем установку
 aws --version
 
-# устанавливаем конфигурацию файла, где указываем значения сгенерированные ранее. Region name=ru-central1. output format=json
+## устанавливаем конфигурацию файла, где указываем значения сгенерированные ранее. Region name=ru-central1. output format=json
 aws configure
 --AWS Access Key ID [None]: <my-service-account-access-key-id>
 --AWS Secret Access Key [None]: <my-service-account-access-secret-key>
@@ -87,19 +92,19 @@ aws configure
 --Default output format [None]: json
 
 
-##6. Загружаем файлы в S3
+# 6. Загружаем файлы в S3
 
-# создаём S3-bucket и грузим в него файлы
+## создаём S3-bucket и грузим в него файлы
 aws --endpoint-url=https://storage.yandexcloud.net s3 mb s3://<my-bucket-name> --acl=public-read 
 
-# загружаем все файлы из папки с постфиксом tbl
+## загружаем все файлы из папки с постфиксом tbl
 aws --endpoint-url=https://storage.yandexcloud.net s3 sync . s3://<my-bucket-name>/<my-folder-name>/ --exclude=* --include=*.tbl --acl=public-read
 
-# проверяем список загруженных файлов
+## проверяем список загруженных файлов
 aws --endpoint-url=https://storage.yandexcloud.net s3 ls --recursive s3://<my-bucket-name>
 
-##7. Созданием таблицы в CH
-# Создаём таблицы в нашей базе db1 в CH
+# 7. Созданием таблицы в CH
+## Создаём таблицы в нашей базе db1 в CH
 CREATE TABLE <my_db_name>.src_customer
         (
                 C_CUSTKEY       UInt32,
@@ -165,8 +170,9 @@ CREATE TABLE <my_db_name>.src_customer
         ENGINE = S3('https://storage.yandexcloud.net/<my-bucket-name>/<my-folder-name>/supplier.tbl', 'CSV')
         ;
 
-##8. Конфигурация подключения dbt к базе данных внутри кластера clickhouse
-# По умолчанию dbt ищет параметры подключения в файле /home/<usr>/.dbt/profiles.yml
+# 8. Конфигурация подключения dbt к базе данных внутри кластера clickhouse
+
+## По умолчанию dbt ищет параметры подключения в файле /home/<usr>/.dbt/profiles.yml
 <example-profile-name>:
   target: dev
   outputs:
@@ -179,16 +185,16 @@ CREATE TABLE <my_db_name>.src_customer
       password: <my-password>
       secure: True
 
-# в файле dbt_project.yml в рабочем проекте dbt указываем название для profile-параметра
+## в файле dbt_project.yml в рабочем проекте dbt указываем название для profile-параметра
 name: 'clickhouse'
 version: '1.0.0'
 config-version: 2
 profile: '<example-profile-name>'
 
-# проверяем подключение с помощью команды
+## проверяем подключение с помощью команды
 dbt debug
 
-# В этом же файле указываем расположение моделей и типы таблиц в них. Такая же иерархия будет в папке models в проекте
+## В этом же файле указываем расположение моделей и типы таблиц в них. Такая же иерархия будет в папке models в проекте
 models:
   clickhouse:
     sources:
@@ -197,5 +203,3 @@ models:
       +materialized: view
     star:
       +materialized: table
-
-#
