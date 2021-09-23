@@ -1,28 +1,28 @@
 # Подключение dbt к Clickhouse в Я.Облаке
 
 ## 1. Разворачиваем кластер clickhouse
-`yc managed-clickhouse cluster create /`
-    `--name <my-cluster-name> /`
-    `--environment production /`
-    `--network-name <my-net-name> /`
-    `--host type=clickhouse,zone-id=ru-central1-a,subnet-id=<my_subnet_id> /`
-    `--clickhouse-resource-preset  m2.micro /`
-    `--clickhouse-disk-type network-ssd /`
-    `--clickhouse-disk-size 10 /`
-    `--user name=user1,password=<my_password> /`
+`yc managed-clickhouse cluster create /` 
+    `--name <my-cluster-name> /` 
+    `--environment production /` 
+    `--network-name <my-net-name> /` 
+    `--host type=clickhouse,zone-id=ru-central1-a,subnet-id=<my_subnet_id> /` 
+    `--clickhouse-resource-preset  m2.micro /` 
+    `--clickhouse-disk-type network-ssd /` 
+    `--clickhouse-disk-size 10 /` 
+    `--user name=user1,password=<my_password> /` 
     `--database name=<my_db_name>`
 
 
 ## 2.Устанавливаем dbt и расширение
 
-Cоздаем виртуальное окружение 
+Cоздаем виртуальное окружение   
 `python3 -m venv dbt-env`            
 
-Активируем виртуальное окружение
+Активируем виртуальное окружение  
 `source dbt-env/bin/activate` 
 
-Клонируем репо с dbt
-`git clone https://github.com/dbt-labs/dbt.git` 
+Клонируем репо с dbt  
+`git clone https://github.com/dbt-labs/dbt.git`  
 `cd dbt`
 
 Устанавливаем dbt по списку из файла
