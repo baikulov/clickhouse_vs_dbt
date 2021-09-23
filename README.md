@@ -1,5 +1,7 @@
 # Подключение dbt к Clickhouse в Я.Облаке
 
+Домашка по курсу `https://otus.ru/lessons/dwh`
+
 ## 1. Разворачиваем кластер clickhouse
 ```
 yc managed-clickhouse cluster create /  
